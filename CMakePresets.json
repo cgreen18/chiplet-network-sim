@@ -4,7 +4,7 @@
     {
       "name": "Debug",
       "displayName": "x64 Debug",
-      "generator": "Ninja",
+      "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/builds/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -14,7 +14,7 @@
     {
       "name": "Release",
       "displayName": "x64 Release",
-      "generator": "Ninja",
+      "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/builds/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -24,7 +24,7 @@
     {
       "name": "RelWithDebInfo",
       "displayName": "x64 RelWithDebInfo",
-      "generator": "Ninja",
+      "generator": "Unix Makefiles",
       "binaryDir": "${sourceDir}/builds/${presetName}",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",

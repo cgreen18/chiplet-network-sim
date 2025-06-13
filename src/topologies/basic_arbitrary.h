@@ -48,7 +48,7 @@ class BasicArbitrary : public System {
 
   // override as simple 1:1
   inline NodeID id2nodeid(int id) const override {
-    int node_id = id;
+    int node_id = 0;
     int chip_id = id;
     return NodeID(node_id, chip_id);
   }

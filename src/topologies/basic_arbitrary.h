@@ -78,6 +78,8 @@ class BasicArbitrary : public System {
   std::vector< std::vector<std::vector<int>>> src_dst_cur_vc_table_;
   std::string vc_type;
   bool uses_datelines;
+  int num_total_vcs_;
+  int num_escape_vcs_;
 
   std::map< std::tuple<int,int> , std::tuple<int,int> > buf_conn_map;
   std::vector<int> next_buf_id;

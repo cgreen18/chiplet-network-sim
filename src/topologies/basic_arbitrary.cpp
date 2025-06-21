@@ -58,6 +58,10 @@ void BasicArbitrary::read_config() {
   num_nodes_ = param->params_ptree.get<int>("Network.n_nodes", 1);
   algorithm_ = param->params_ptree.get<std::string>("Network.routing_algorithm", "XY");
 
+  num_total_vcs_ = param->params_ptree.get<int>("Network.vc_number", 2);
+  // TODO make this an input param as well?
+  num_escape_vcs_ = 2;
+
   printf("Single Node Arbitrary of %d nodes\n",num_nodes_);
   num_chips_ = num_nodes_;
   num_nodes_ = num_nodes_;
@@ -269,16 +273,36 @@ void BasicArbitrary::NRL_routing(Packet& s) const {
   else
     deadlock_free_vc = src_dst_cur_vc_table_[source_chip_id][destination_chip_id][current_chip_id];
 
-  // TODO do something for general versus escape VCs
-  // for now only deadlock free escape VCs
-  int vc_allowed = deadlock_free_vc;
-
-  if(vc_allowed == -1){
+  if(deadlock_free_vc == -1){
     std::cerr << "ERROR : cannot find VC"<<std::endl;
     exit(-1);
   }
-  
-  // TODO assert valid VC number
+  // -1 is flag value for unknown. also assert it is valid for the # escape VCs passed
+  assert(deadlock_free_vc < num_escape_vcs_);
+
+  int vc_allowed = deadlock_free_vc;
+
+  // TODO potential for not random usage of general vs escape virtual channels
+  if (num_total_vcs_ > num_escape_vcs_){
+    int num_general_vcs = num_total_vcs_ - num_escape_vcs_;
+    // given # escape (e) and # general (g) VCs
+    // p(escape) = 1/(g+1) and p(general) = g/(g+1)
+
+    int rand_num = rand() % (num_general_vcs + 1);
+
+    // if val==g then escape 
+    // make vc_allowed in [num_general_vcs, num_total_vcs_)
+    if( rand_num == num_general_vcs){
+      vc_allowed = deadlock_free_vc + num_escape_vcs_;
+    }
+    // then general
+    // vc_allowed in [0,num_general_vcs)
+    else{
+      vc_allowed = rand_num;
+    }
+
+    // std::cout << "Given deadlock_free_vc "<<deadlock_free_vc<<" and rand_num "<<rand_num<<" chose VC "<<vc_allowed<<std::endl;
+  }
 
   auto conn_tuple = std::make_pair(current_chip_id,next_chip_id);
   auto buf_id_tuple = buf_conn_map.at(conn_tuple);

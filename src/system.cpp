@@ -6,6 +6,7 @@
 #include "multiple_chip_torus.h"
 #include "single_chip_mesh.h"
 #include "traffic_manager.h"
+#include "basic_arbitrary.h"
 
 System::System() {
   num_chips_ = 0;
@@ -31,6 +32,8 @@ System* System::New(const std::string& topology) {
     sys_ptr = new DragonflySW;
   else if (topology == "DragonflyChiplet")
     sys_ptr = new DragonflyChiplet;
+  else if (topology == "BasicArbitrary")
+    sys_ptr = new BasicArbitrary;
   else {
     std::cerr << "No such a topology!" << std::endl;
     return nullptr;

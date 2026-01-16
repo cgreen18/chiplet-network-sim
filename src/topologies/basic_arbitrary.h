@@ -1,6 +1,7 @@
 #pragma once
 #include "system.h"
-
+#include <unordered_map>
+#include <sstream>
 
 class Chip;
 
@@ -10,9 +11,6 @@ class BasicNode : public Node {
 
   void set_node(Chip* chip, NodeID id) override;
 
-  // Chip* chip_;  // point to the chip where the node is located
-  // int x_, y_;   // coodinate with the chip
-  // int k_node_;  // number of nodes in a row/column
 };
 
 class BasicChip : public Chip {
@@ -27,12 +25,8 @@ class BasicChip : public Chip {
     return static_cast<BasicNode*>(nodes_[id.node_id]);
   }
 
-//   int k_node_;
   std::vector<int> chip_coordinate_;
 };
-
-
-
 
 class BasicArbitrary : public System {
  public:
@@ -44,7 +38,12 @@ class BasicArbitrary : public System {
   void load_adjacency_matrix(const std::string& filename);
   void load_vc_matrix(const std::string& filename);
   void load_3d_vc_matrix(const std::string& filename);
+  void load_tupled_vc_matrix(const std::string& filename);
   void load_3d_routing_table(const std::string& filename);
+  void load_tupled_routing_table(const std::string& filename);
+  
+  // Helper function to parse tuple format: (i,j,k,v)
+  bool parse_tuple(const std::string& s, int& i, int& j, int& k, int& v);
 
   // override as simple 1:1
   inline NodeID id2nodeid(int id) const override {
@@ -73,11 +72,19 @@ class BasicArbitrary : public System {
 
   std::vector<std::vector<int>> adjacency_matrix_;
   std::vector<std::vector<std::vector<int>>> cur_src_dst_routing_table_;
+  std::vector<std::vector<std::unordered_map<int,int>>> src_dst_cur_sparse_routing_table_; // (path_src, path_dest, cur_node, next_router)
+  std::string nrl_version;
+  bool uses_nrl2;
   
   std::vector<std::vector<int>> src_dst_vc_table_;
   std::vector< std::vector<std::vector<int>>> src_dst_cur_vc_table_;
+  std::vector< std::vector<std::unordered_map<int,int>>> src_dst_cur_sparse_vc_table_; // (path_src, path_dest, cur_node, vc)
   std::string vc_type;
+  std::string vc_version;
   bool uses_datelines;
+  bool uses_vcmat2;
+  int num_total_vcs_;
+  int num_escape_vcs_;
 
   std::map< std::tuple<int,int> , std::tuple<int,int> > buf_conn_map;
   std::vector<int> next_buf_id;

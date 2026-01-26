@@ -1,7 +1,40 @@
 #include "basic_arbitrary.h"
+#include <cassert>
+#include <cerrno>
+#include <cstring>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <sys/stat.h>
+
+namespace {
+
+bool path_exists(const std::string& path) {
+  struct stat st;
+  return ::stat(path.c_str(), &st) == 0;
+}
+
+[[noreturn]] void die_file_open(const char* kind, const std::string& path) {
+  const bool exists = path_exists(path);
+  std::cerr << "ERROR: Failed to open " << kind << " file: " << path << "\n";
+  std::cerr << "  exists: " << (exists ? "yes" : "no") << "\n";
+  if (exists) {
+    std::cerr << "  reason: exists but could not be opened (permissions? lock?)\n";
+  } else {
+    std::cerr << "  reason: path does not exist\n";
+  }
+  std::cerr << "  errno: " << errno << " (" << std::strerror(errno) << ")\n";
+  std::exit(1);
+}
+
+[[noreturn]] void die_file_format(const char* kind, const std::string& path, const std::string& detail) {
+  std::cerr << "ERROR: Malformed " << kind << " file: " << path << "\n";
+  std::cerr << "  detail: " << detail << "\n";
+  std::exit(1);
+}
+
+}  // namespace
 
 
 // TODO allow modifying # ports
@@ -73,8 +106,31 @@ void BasicArbitrary::read_config() {
   algorithm_ = param->params_ptree.get<std::string>("Network.routing_algorithm", "XY");
 
   num_total_vcs_ = param->params_ptree.get<int>("Network.vc_number", 2);
-  num_escape_vcs_ = param->params_ptree.get<int>("Network.num_escape_vcs", 2);
+  // Support both names for backwards compatibility:
+  // - Network.num_escape_vcs (preferred)
+  // - Network.escape_vc_number (legacy)
+  int esc_from_new_key = param->params_ptree.get<int>("Network.num_escape_vcs", -1);
+  if (esc_from_new_key >= 0) {
+    num_escape_vcs_ = esc_from_new_key;
+  } else {
+    num_escape_vcs_ = param->params_ptree.get<int>("Network.escape_vc_number", 2);
+  }
   d2d_IF_ = param->params_ptree.get<std::string>("Network.d2d_IF", "off_chip_serial");
+
+  if (num_total_vcs_ <= 0) {
+    std::cerr << "ERROR: Network.vc_number must be > 0 (got " << num_total_vcs_ << ")\n";
+    std::exit(1);
+  }
+  if (num_escape_vcs_ <= 0) {
+    std::cerr << "ERROR: Network.num_escape_vcs (or escape_vc_number) must be > 0 (got "
+              << num_escape_vcs_ << ")\n";
+    std::exit(1);
+  }
+  if (num_escape_vcs_ > num_total_vcs_) {
+    std::cerr << "ERROR: num_escape_vcs (" << num_escape_vcs_
+              << ") must be <= vc_number (" << num_total_vcs_ << ")\n";
+    std::exit(1);
+  }
 
   printf("Basic Arbitrary of %d nodes\n", num_nodes_);
   num_chips_ = num_nodes_;
@@ -124,15 +180,18 @@ void BasicArbitrary::read_config() {
 void BasicArbitrary::load_adjacency_matrix(const std::string& filename) {
   std::ifstream file(filename);
   if (!file) {
-    std::cerr << "Error: Could not open file " << filename << "\n";
-    return;
+    die_file_open("topology (adjacency matrix)", filename);
   }
 
   adjacency_matrix_.resize(num_nodes_, std::vector<int>(num_nodes_, 0));
 
   for (int i = 0; i < num_nodes_; ++i) {
     for (int j = 0; j < num_nodes_; ++j) {
-      file >> adjacency_matrix_[i][j];
+      if (!(file >> adjacency_matrix_[i][j])) {
+        die_file_format("topology (adjacency matrix)", filename,
+                        "expected an integer at entry (row=" + std::to_string(i) +
+                            ", col=" + std::to_string(j) + ")");
+      }
     }
   }
 
@@ -142,8 +201,7 @@ void BasicArbitrary::load_adjacency_matrix(const std::string& filename) {
 void BasicArbitrary::load_vc_matrix(const std::string& filename) {
   std::ifstream file(filename);
   if (!file) {
-    std::cerr << "Error: Could not open file " << filename << "\n";
-    return;
+    die_file_open("VC matrix (2D)", filename);
   }
 
   src_dst_vc_table_.resize(num_nodes_, std::vector<int>(num_nodes_, 0));
@@ -151,7 +209,19 @@ void BasicArbitrary::load_vc_matrix(const std::string& filename) {
   int max_vc_value = -1;
   for (int i = 0; i < num_nodes_; ++i) {
     for (int j = 0; j < num_nodes_; ++j) {
-      file >> src_dst_vc_table_[i][j];
+      if (!(file >> src_dst_vc_table_[i][j])) {
+        die_file_format("VC matrix (2D)", filename,
+                        "expected an integer at entry (src=" + std::to_string(i) +
+                            ", dst=" + std::to_string(j) + ")");
+      }
+      if (src_dst_vc_table_[i][j] < 0 || src_dst_vc_table_[i][j] >= num_escape_vcs_) {
+        die_file_format("VC matrix (2D)", filename,
+                        "VC value out of range at (src=" + std::to_string(i) +
+                            ", dst=" + std::to_string(j) + "): got " +
+                            std::to_string(src_dst_vc_table_[i][j]) +
+                            ", expected 0 <= vc < num_escape_vcs (" + std::to_string(num_escape_vcs_) +
+                            ")");
+      }
       if (src_dst_vc_table_[i][j] > max_vc_value) {
         max_vc_value = src_dst_vc_table_[i][j];
       }
@@ -162,6 +232,11 @@ void BasicArbitrary::load_vc_matrix(const std::string& filename) {
   
   // Assert that num_escape_vcs_ is greater than all VC matrix values
   if (max_vc_value >= 0) {
+    if (max_vc_value >= num_escape_vcs_) {
+      die_file_format("VC matrix (2D)", filename,
+                      "max VC value " + std::to_string(max_vc_value) +
+                          " is not < num_escape_vcs (" + std::to_string(num_escape_vcs_) + ")");
+    }
     assert(max_vc_value < num_escape_vcs_ && 
            "ERROR: num_escape_vcs must be greater than all VC matrix values");
   }
@@ -172,8 +247,7 @@ void BasicArbitrary::load_vc_matrix(const std::string& filename) {
 void BasicArbitrary::load_3d_routing_table(const std::string& filename) {
   std::ifstream file(filename);
   if (!file.is_open()) {
-      std::cerr << "Error: Could not open file " << filename << "\n";
-      return;
+      die_file_open("NRL routing table (dense v1)", filename);
   }
 
   std::cout << "reading from file " << filename << "\n";
@@ -182,13 +256,25 @@ void BasicArbitrary::load_3d_routing_table(const std::string& filename) {
   int nodes = num_nodes_;
 
   // Skip the first line
-  std::getline(file, line);
+  if (!std::getline(file, line)) {
+    die_file_format("NRL routing table (dense v1)", filename, "missing header line");
+  }
 
 
   for (int i = 0; i < nodes; ++i) {
       std::vector<std::vector<int>> matrix;
       for (int j = 0; j < nodes; ++j) {
-          std::getline(file, line);
+          if (!std::getline(file, line)) {
+            die_file_format("NRL routing table (dense v1)", filename,
+                            "unexpected EOF reading block=" + std::to_string(i) +
+                                " row=" + std::to_string(j));
+          }
+          if (line.size() < 2 || line.front() != '[' || line.back() != ']') {
+            die_file_format("NRL routing table (dense v1)", filename,
+                            "expected bracketed list like [0,1,2,...] at block=" +
+                                std::to_string(i) + " row=" + std::to_string(j) +
+                                " but got: " + line);
+          }
           line = line.substr(1, line.size() - 2); // Remove square brackets
           std::stringstream ss(line);
           std::vector<int> row;
@@ -196,6 +282,24 @@ void BasicArbitrary::load_3d_routing_table(const std::string& filename) {
           while (ss >> value) {
               row.push_back(value);
               if (ss.peek() == ',') ss.ignore(); // Skip comma
+          }
+          if ((int)row.size() != nodes) {
+            die_file_format("NRL routing table (dense v1)", filename,
+                            "expected " + std::to_string(nodes) + " integers but got " +
+                                std::to_string(row.size()) + " at block=" + std::to_string(i) +
+                                " row=" + std::to_string(j));
+          }
+          for (int col = 0; col < nodes; ++col) {
+            const int hop = row[col];
+            if (hop < -1 || hop >= nodes) {
+              die_file_format("NRL routing table (dense v1)", filename,
+                              "next hop out of range at (cur=" + std::to_string(i) +
+                                  ", src=" + std::to_string(j) +
+                                  ", dst=" + std::to_string(col) + "): got " +
+                                  std::to_string(hop) +
+                                  ", expected -1 or 0 <= next < n_nodes (" + std::to_string(nodes) +
+                                  ")");
+            }
           }
           matrix.push_back(row);
       }
@@ -209,8 +313,7 @@ void BasicArbitrary::load_3d_routing_table(const std::string& filename) {
 void BasicArbitrary::load_tupled_routing_table(const std::string& filename) {
   std::ifstream file(filename);
   if (!file.is_open()) {
-      std::cerr << "Error: Could not open file " << filename << "\n";
-      return;
+      die_file_open("NRL routing table (sparse v2)", filename);
   }
 
   std::cout << "reading from file " << filename << "\n";
@@ -227,12 +330,25 @@ void BasicArbitrary::load_tupled_routing_table(const std::string& filename) {
       
       int i, j, k, v;
       if (!parse_tuple(line, i, j, k, v)) {
-        std::cerr << "ERROR: parsing nrl2 line: " << line << std::endl;
-        continue;
+        die_file_format("NRL routing table (sparse v2)", filename,
+                        "could not parse tuple '(cur,src,dst,next)': " + line);
       }
-      if (i < 0 || j < 0 || k < 0) {
-        std::cerr << "ERROR: parsing nrl2. Negative i,j,k: " << i << "," << j << "," << k << std::endl;
-        continue;
+      if (i < 0 || j < 0 || k < 0 || v < -1) {
+        die_file_format("NRL routing table (sparse v2)", filename,
+                        "invalid tuple values (cur,src,dst,next)=(" + std::to_string(i) + "," +
+                            std::to_string(j) + "," + std::to_string(k) + "," +
+                            std::to_string(v) + ")");
+      }
+      if (i >= num_nodes_ || j >= num_nodes_ || k >= num_nodes_) {
+        die_file_format("NRL routing table (sparse v2)", filename,
+                        "tuple indices out of range for n_nodes=" + std::to_string(num_nodes_) +
+                            ": (cur,src,dst)=(" + std::to_string(i) + "," + std::to_string(j) +
+                            "," + std::to_string(k) + ")");
+      }
+      if (v >= num_nodes_) {
+        die_file_format("NRL routing table (sparse v2)", filename,
+                        "next hop out of range for n_nodes=" + std::to_string(num_nodes_) +
+                            ": next=" + std::to_string(v));
       }
 
       src_dst_cur_sparse_routing_table_[i][j][k] = v; // creates or overwrites
@@ -252,8 +368,7 @@ void BasicArbitrary::load_tupled_routing_table(const std::string& filename) {
 void BasicArbitrary::load_3d_vc_matrix(const std::string& filename) {
   std::ifstream file(filename);
   if (!file.is_open()) {
-      std::cerr << "Error: Could not open file " << filename << "\n";
-      return;
+      die_file_open("VC matrix (dense v1, dateline)", filename);
   }
 
   std::cout << "reading from file " << filename << "\n";
@@ -267,7 +382,22 @@ void BasicArbitrary::load_3d_vc_matrix(const std::string& filename) {
   for (int block = 0; block < num_nodes_; ++block) {
       for (int row = 0; row < num_nodes_; ++row) {
           for (int col = 0; col < num_nodes_; ++col) {
-              file >> src_dst_cur_vc_table_[block][row][col];
+              if (!(file >> src_dst_cur_vc_table_[block][row][col])) {
+                die_file_format("VC matrix (dense v1, dateline)", filename,
+                                "expected integer at (src=" + std::to_string(block) +
+                                    ", dst=" + std::to_string(row) +
+                                    ", cur=" + std::to_string(col) + ")");
+              }
+              if (src_dst_cur_vc_table_[block][row][col] < 0 ||
+                  src_dst_cur_vc_table_[block][row][col] >= num_escape_vcs_) {
+                die_file_format("VC matrix (dense v1, dateline)", filename,
+                                "VC value out of range at (src=" + std::to_string(block) +
+                                    ", dst=" + std::to_string(row) +
+                                    ", cur=" + std::to_string(col) + "): got " +
+                                    std::to_string(src_dst_cur_vc_table_[block][row][col]) +
+                                    ", expected 0 <= vc < num_escape_vcs (" +
+                                    std::to_string(num_escape_vcs_) + ")");
+              }
               if (src_dst_cur_vc_table_[block][row][col] > max_vc_value) {
                 max_vc_value = src_dst_cur_vc_table_[block][row][col];
               }
@@ -279,6 +409,11 @@ void BasicArbitrary::load_3d_vc_matrix(const std::string& filename) {
   
   // Assert that num_escape_vcs_ is greater than all VC matrix values
   if (max_vc_value >= 0) {
+    if (max_vc_value >= num_escape_vcs_) {
+      die_file_format("VC matrix (dense v1, dateline)", filename,
+                      "max VC value " + std::to_string(max_vc_value) +
+                          " is not < num_escape_vcs (" + std::to_string(num_escape_vcs_) + ")");
+    }
     assert(max_vc_value < num_escape_vcs_ && 
            "ERROR: num_escape_vcs must be greater than all VC matrix values");
   }
@@ -289,8 +424,7 @@ void BasicArbitrary::load_3d_vc_matrix(const std::string& filename) {
 void BasicArbitrary::load_tupled_vc_matrix(const std::string& filename) {
   std::ifstream file(filename);
   if (!file.is_open()) {
-      std::cerr << "Error: Could not open file " << filename << "\n";
-      return;
+      die_file_open("VC matrix (sparse v2, dateline)", filename);
   }
 
   std::cout << "reading from file " << filename << "\n";
@@ -308,12 +442,26 @@ void BasicArbitrary::load_tupled_vc_matrix(const std::string& filename) {
     
     int i, j, k, v;
     if (!parse_tuple(line, i, j, k, v)) {
-      std::cerr << "ERROR: parsing vc2 line: " << line << std::endl;
-      continue;
+      die_file_format("VC matrix (sparse v2, dateline)", filename,
+                      "could not parse tuple '(src,dst,cur,vc)': " + line);
     }
-    if (i < 0 || j < 0 || k < 0) {
-      std::cerr << "ERROR: parsing vc2. Negative i,j,k: " << i << "," << j << "," << k << std::endl;
-      continue;
+    if (i < 0 || j < 0 || k < 0 || v < 0) {
+      die_file_format("VC matrix (sparse v2, dateline)", filename,
+                      "invalid tuple values (src,dst,cur,vc)=(" + std::to_string(i) + "," +
+                          std::to_string(j) + "," + std::to_string(k) + "," + std::to_string(v) +
+                          ")");
+    }
+    if (i >= num_nodes_ || j >= num_nodes_ || k >= num_nodes_) {
+      die_file_format("VC matrix (sparse v2, dateline)", filename,
+                      "tuple indices out of range for n_nodes=" + std::to_string(num_nodes_) +
+                          ": (src,dst,cur)=(" + std::to_string(i) + "," + std::to_string(j) +
+                          "," + std::to_string(k) + ")");
+    }
+    if (v >= num_escape_vcs_) {
+      die_file_format("VC matrix (sparse v2, dateline)", filename,
+                      "VC value out of range for num_escape_vcs=" + std::to_string(num_escape_vcs_) +
+                          " at (src,dst,cur)=(" + std::to_string(i) + "," + std::to_string(j) +
+                          "," + std::to_string(k) + "): vc=" + std::to_string(v));
     }
 
     src_dst_cur_sparse_vc_table_[i][j][k] = v; // creates or overwrites
@@ -331,6 +479,11 @@ void BasicArbitrary::load_tupled_vc_matrix(const std::string& filename) {
 
   // Assert that num_escape_vcs_ is greater than all VC matrix values
   if (max_vc_value >= 0) {
+    if (max_vc_value >= num_escape_vcs_) {
+      die_file_format("VC matrix (sparse v2, dateline)", filename,
+                      "max VC value " + std::to_string(max_vc_value) +
+                          " is not < num_escape_vcs (" + std::to_string(num_escape_vcs_) + ")");
+    }
     assert(max_vc_value < num_escape_vcs_ && 
            "ERROR: num_escape_vcs must be greater than all VC matrix values");
   }
@@ -428,81 +581,8 @@ void BasicArbitrary::NRL_routing(Packet& s) const {
     exit(-1);
   }
 
-  // Determine VC based on VC table version and type
-  int vc_allowed = -1;
-  if (!uses_datelines) {
-    // 2D per-flow VC table: use the table value directly, then apply probability-based selection
-    int deadlock_free_vc = src_dst_vc_table_[source_chip_id][destination_chip_id];
-    if (deadlock_free_vc == -1) {
-      std::cerr << "ERROR: cannot find VC" << std::endl;
-      exit(-1);
-    }
-    assert(deadlock_free_vc < num_escape_vcs_);
-    
-    vc_allowed = deadlock_free_vc;
-    if (num_total_vcs_ > num_escape_vcs_) {
-      int num_general_vcs = num_total_vcs_ - num_escape_vcs_;
-      // Probability: p(escape) = 1/(g+1) and p(general) = g/(g+1)
-      int rand_num = rand() % (num_general_vcs + 1);
-      if (rand_num == num_general_vcs) {
-        // Use escape VC: vc_allowed in [num_general_vcs, num_total_vcs_)
-        vc_allowed = deadlock_free_vc + num_escape_vcs_;
-      } else {
-        // Use general VC: vc_allowed in [0, num_general_vcs)
-        vc_allowed = rand_num;
-      }
-    }
-  } else if (uses_vcmat2) {
-    // Sparse version 2 with datelines: get deadlock-free VC from table, then apply probability-based selection
-    auto it = src_dst_cur_sparse_vc_table_[source_chip_id][destination_chip_id].find(current_chip_id);
-    if (it == src_dst_cur_sparse_vc_table_[source_chip_id][destination_chip_id].end()) {
-      std::cerr << "ERROR: Missing vc cur " << current_chip_id
-                << ", src " << source_chip_id
-                << ", dest " << destination_chip_id << std::endl;
-      exit(-1);
-    }
-    int deadlock_free_vc = it->second;
-    assert(deadlock_free_vc < num_escape_vcs_);
-    
-    vc_allowed = deadlock_free_vc;
-    if (num_total_vcs_ > num_escape_vcs_) {
-      int num_general_vcs = num_total_vcs_ - num_escape_vcs_;
-      // Probability: p(escape) = 1/(g+1) and p(general) = g/(g+1)
-      int rand_num = rand() % (num_general_vcs + 1);
-      if (rand_num == num_general_vcs) {
-        // Use escape VC: vc_allowed in [num_general_vcs, num_total_vcs_)
-        vc_allowed = deadlock_free_vc + num_escape_vcs_;
-      } else {
-        // Use general VC: vc_allowed in [0, num_general_vcs)
-        vc_allowed = rand_num;
-      }
-    }
-  } else {
-    // Dense version 1 with datelines: get deadlock-free VC from table, then apply probability-based selection
-    int deadlock_free_vc = src_dst_cur_vc_table_[source_chip_id][destination_chip_id][current_chip_id];
-    if (deadlock_free_vc == -1) {
-      std::cerr << "ERROR: cannot find VC" << std::endl;
-      exit(-1);
-    }
-    assert(deadlock_free_vc < num_escape_vcs_);
-    
-    vc_allowed = deadlock_free_vc;
-    if (num_total_vcs_ > num_escape_vcs_) {
-      int num_general_vcs = num_total_vcs_ - num_escape_vcs_;
-      // Probability: p(escape) = 1/(g+1) and p(general) = g/(g+1)
-      int rand_num = rand() % (num_general_vcs + 1);
-      if (rand_num == num_general_vcs) {
-        // Use escape VC: vc_allowed in [num_general_vcs, num_total_vcs_)
-        vc_allowed = deadlock_free_vc + num_escape_vcs_;
-      } else {
-        // Use general VC: vc_allowed in [0, num_general_vcs)
-        vc_allowed = rand_num;
-      }
-    }
-  }
-
   // Get buffer connection information
-  auto conn_tuple = std::make_pair(current_chip_id, next_chip_id);
+  auto conn_tuple = std::make_tuple(current_chip_id, next_chip_id);
   auto buf_it = buf_conn_map.find(conn_tuple);
   if (buf_it == buf_conn_map.end()) {
     std::cerr << "ERROR: No buffer connection found for current_chip_id=" << current_chip_id
@@ -511,8 +591,74 @@ void BasicArbitrary::NRL_routing(Packet& s) const {
   }
   auto buf_id_tuple = buf_it->second;
   auto src_buf_id = std::get<0>(buf_id_tuple);
-  auto dest_buf_id = std::get<1>(buf_id_tuple);
+  Buffer* const next_hop_buffer = current_node->link_buffers_[src_buf_id];
 
-  // Add candidate channel
-  s.candidate_channels_.push_back(VCInfo(current_node->link_buffers_[src_buf_id], vc_allowed));
+  // VC allocation (partitioned, stateful):
+  //
+  // Partition VCs into:
+  // - General: [0, base_escape)
+  // - Escape : [base_escape, num_total_vcs_)
+  //   where base_escape = num_total_vcs_ - num_escape_vcs_
+  //
+  // VC matrices store an *escape index* in [0, num_escape_vcs_), i.e. which escape VC to use.
+  //
+  // New rule:
+  // - If previous VC was GENERAL => next VC can be ANY general VC OR the allowed escape VC.
+  // - If previous VC was ESCAPE  => next VC can ONLY be the allowed escape VC.
+  const int base_escape = num_total_vcs_ - num_escape_vcs_;
+  assert(base_escape >= 0);
+
+  // Determine allowed escape index (in [0, num_escape_vcs_))
+  int allowed_escape_idx = -1;
+  if (!uses_datelines) {
+    allowed_escape_idx = src_dst_vc_table_[source_chip_id][destination_chip_id];
+    if (allowed_escape_idx < 0) {
+      std::cerr << "ERROR: Missing VC (2D) for src=" << source_chip_id
+                << " dst=" << destination_chip_id << std::endl;
+      std::exit(1);
+    }
+  } else if (uses_vcmat2) {
+    auto it = src_dst_cur_sparse_vc_table_[source_chip_id][destination_chip_id].find(current_chip_id);
+    if (it == src_dst_cur_sparse_vc_table_[source_chip_id][destination_chip_id].end()) {
+      std::cerr << "ERROR: Missing VC (sparse v2) for cur=" << current_chip_id
+                << " src=" << source_chip_id
+                << " dst=" << destination_chip_id << std::endl;
+      std::exit(1);
+    }
+    allowed_escape_idx = it->second;
+  } else {
+    allowed_escape_idx = src_dst_cur_vc_table_[source_chip_id][destination_chip_id][current_chip_id];
+    if (allowed_escape_idx < 0) {
+      std::cerr << "ERROR: Missing VC (dense v1) for cur=" << current_chip_id
+                << " src=" << source_chip_id
+                << " dst=" << destination_chip_id << std::endl;
+      std::exit(1);
+    }
+  }
+
+  if (allowed_escape_idx < 0 || allowed_escape_idx >= num_escape_vcs_) {
+    std::cerr << "ERROR: VC matrix escape index out of range: got " << allowed_escape_idx
+              << ", expected 0 <= vc < num_escape_vcs (" << num_escape_vcs_ << ")\n";
+    std::exit(1);
+  }
+
+  const int allowed_escape_vc = base_escape + allowed_escape_idx;
+  assert(allowed_escape_vc >= base_escape && allowed_escape_vc < num_total_vcs_);
+
+  // Determine previous VC partition (at source, treat as general for eligibility)
+  const VCInfo prev = s.head_trace();
+  const bool at_source = (prev.buffer == nullptr);
+  const bool prev_is_escape = (!at_source && prev.vcb >= base_escape);
+
+  // Emit candidate VCs (multiple options).
+  if (prev_is_escape) {
+    // Escape -> must stay on allowed escape VC
+    s.candidate_channels_.push_back(VCInfo(next_hop_buffer, allowed_escape_vc));
+  } else {
+    // General -> may use any general VC OR the allowed escape VC
+    for (int vc = 0; vc < base_escape; ++vc) {
+      s.candidate_channels_.push_back(VCInfo(next_hop_buffer, vc));
+    }
+    s.candidate_channels_.push_back(VCInfo(next_hop_buffer, allowed_escape_vc));
+  }
 }

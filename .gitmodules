@@ -1,0 +1,3 @@
+[submodule "ccl2trace"]
+	path = ccl2trace
+	url = https://github.com/SetsuY/ccl2trace.git

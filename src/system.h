@@ -11,7 +11,7 @@ class System {
   virtual ~System() {}
   virtual void reset();
   virtual void read_config() = 0;
-  void update(Packet& s);
+  void update(Packet& s, uint64_t cycle = 0);
   void onestage(Packet& s);
   void twostage(Packet& s);
   void Threestage(Packet& s);

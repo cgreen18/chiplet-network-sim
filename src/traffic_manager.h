@@ -1,6 +1,8 @@
 #pragma once
 #include <chrono>
 #include <fstream>
+#include <mutex>
+#include <vector>
 
 #include "system.h"
 extern "C" {
@@ -33,6 +35,7 @@ class TrafficManager {
   };
 
   void print_statistics();
+  void record_arrival(uint64_t latency_cycles, uint64_t total_hops);
 
   std::fstream trace_;
   nt_context_t* CTX;
@@ -59,4 +62,12 @@ class TrafficManager {
   std::atomic_uint64_t total_parallel_hops_;
   std::atomic_uint64_t total_serial_hops_;
   std::atomic_uint64_t total_other_hops_;
+  // Cycle at which the last packet arrived (completion time for trace workloads).
+  std::atomic_uint64_t last_arrival_cycle_;
+
+  // Per-packet samples for latency/hop distribution (capped to avoid unbounded memory).
+  static constexpr size_t kMaxArrivalSamples = 100000;
+  std::mutex stats_mutex_;
+  std::vector<uint64_t> arrival_latencies_;
+  std::vector<uint64_t> arrival_hops_;
 };

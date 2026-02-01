@@ -15,6 +15,7 @@ static std::vector<std::thread> threads;
 static volatile bool finished = false; //
 static std::condition_variable cv;
 static std::atomic_uint64_t pkt_i;  // atomic index towards the next packet to be dispatched
+static std::atomic_uint64_t current_sim_cycle{0};  // current simulation cycle (for completion-time metric)
 // per thread vavriable
 static std::mutex* mtxs;
 static volatile bool* thread_ready;
@@ -35,7 +36,8 @@ static void update_packets(std::vector<Packet*>& packets, System* system) {
       uint64_t max_i = std::min(i + issue_width, vec_size);
       // update packets one by one
       do {
-        system->update(*packets[i]);
+        // system->update(*packets[i]);
+        system->update(*packets[i], current_sim_cycle.load());
       } while (++i < max_i);
       i = pkt_i.load();
     }
@@ -57,8 +59,8 @@ static void worker(std::vector<Packet*>& packets, System* s, int id) {
 // Run one cycle of the simulation by iterating through all packets twice:
 // 1. Release the link status and delete arrived packets
 // 2. Update the packets
-static void run_one_cycle(std::vector<Packet*>& vec_pkts, System* system) {
-  // single thread, fisrt come first serve
+static void run_one_cycle(std::vector<Packet*>& vec_pkts, System* system, uint64_t cycle) {
+  current_sim_cycle.store(cycle);  // single thread, fisrt come first serve
   uint64_t j = 0;
   uint64_t vecsize = vec_pkts.size();
   for (auto i = 0; i < vecsize; ++i) {
@@ -136,9 +138,15 @@ int main(int argc, char* argv[]) {
   if (param->traffic == "netrace") {  // inject according to the time_stamp
     TM->injection_rate_ = (double)TM->CTX->input_trheader->num_packets /
                           TM->CTX->input_trheader->num_cycles / network->num_cores_;
-    for (uint64_t i = 0; i < TM->CTX->input_trheader->num_cycles + 1000; i++) {
+    uint64_t i = 0;
+    for (; i < TM->CTX->input_trheader->num_cycles + 1000; i++) {
       TM->genMes(all_packets, i);
-      run_one_cycle(all_packets, network);
+      run_one_cycle(all_packets, network, i);
+    }
+    // Drain: keep running until all injected packets arrive (or cap to avoid deadlock)
+    while (!all_packets.empty() && i < param->simulation_time) {
+      run_one_cycle(all_packets, network, i);
+      i++;
     }
     TM->print_statistics();
     nt_close_trfile(TM->CTX);
@@ -150,13 +158,13 @@ int main(int argc, char* argv[]) {
       //  warm up for 50% of the simulation time
       for (uint64_t i = 0; i < param->simulation_time / 2; i++) {
         TM->genMes(all_packets);
-        run_one_cycle(all_packets, network);
+        run_one_cycle(all_packets, network, i);
       }
       TM->reset();
       for (uint64_t i = 0; i < param->simulation_time && TM->message_timeout_ < timeout_limit;
            i++) {
         TM->genMes(all_packets);
-        run_one_cycle(all_packets, network);
+        run_one_cycle(all_packets, network, i);
       }
       TM->print_statistics();
       if (TM->receiving_rate() > maximum_receiving_rate)
@@ -170,7 +178,7 @@ int main(int argc, char* argv[]) {
         saturated = true;
 #ifdef DEBUG // check deadlock
         for (uint64_t i = 0; i < param->simulation_time * 2; i++) {  // try to drain
-          run_one_cycle(all_packets, network);
+          run_one_cycle(all_packets, network, i);
           if (all_packets.size() == 0) {
             std::cerr << "No deadlock!" << std::endl;
             break;

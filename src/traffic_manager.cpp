@@ -1,6 +1,13 @@
 #include "traffic_manager.h"
-
+#include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <random>
+#include <sstream>
 #include "boost/dynamic_bitset.hpp"
+
+static const double kDemandTolerance = 1e-9;
+
 
 TrafficManager::TrafficManager() {
   injection_rate_ = 0;
@@ -33,6 +40,9 @@ TrafficManager::TrafficManager() {
   total_parallel_hops_.store(0);
   total_serial_hops_.store(0);
   total_other_hops_.store(0);
+  last_arrival_cycle_.store(0);
+  arrival_latencies_.clear();
+  arrival_hops_.clear();
 #ifdef DEBUG
   for (auto& chip : network->chips_) {
     for (auto& node : chip->nodes_) {
@@ -65,25 +75,80 @@ void TrafficManager::reset() {
   total_parallel_hops_.store(0);
   total_serial_hops_.store(0);
   total_other_hops_.store(0);
+  last_arrival_cycle_.store(0);
+  arrival_latencies_.clear();
+  arrival_hops_.clear();
+}
+
+void TrafficManager::record_arrival(uint64_t latency_cycles, uint64_t total_hops) {
+  std::lock_guard<std::mutex> lock(stats_mutex_);
+  if (arrival_latencies_.size() < kMaxArrivalSamples) {
+    arrival_latencies_.push_back(latency_cycles);
+    arrival_hops_.push_back(total_hops);
+  }
 }
 
 void TrafficManager::print_statistics() {
   std::chrono::duration<double> elapsed_seconds = std::chrono::system_clock::now() - time_;
-  double average_internal_hops = ((double)TM->total_internal_hops_ / TM->message_arrived_);
-  double average_parallel_hops = ((double)TM->total_parallel_hops_ / TM->message_arrived_);
-  double average_serial_hops = ((double)TM->total_serial_hops_ / TM->message_arrived_);
-  double average_other_hops = ((double)TM->total_other_hops_ / TM->message_arrived_);
+  uint64_t arrived = message_arrived_.load();
+  if (arrived == 0) {
+    std::cout << std::endl
+              << "Time elapsed: " << elapsed_seconds.count() << "s" << std::endl
+              << "Injected:" << all_message_num_ << "    Arrived: 0    Timeout: " << message_timeout_
+              << std::endl;
+    return;
+  }
+  double average_internal_hops = ((double)TM->total_internal_hops_ / arrived);
+  double average_parallel_hops = ((double)TM->total_parallel_hops_ / arrived);
+  double average_serial_hops = ((double)TM->total_serial_hops_ / arrived);
+  double average_other_hops = ((double)TM->total_other_hops_ / arrived);
+  uint64_t total_hops = total_internal_hops_.load() + total_parallel_hops_.load() +
+                        total_serial_hops_.load() + total_other_hops_.load();
+  double average_cycles_per_hop =
+      (total_hops > 0) ? ((double)total_cycles_.load() / total_hops) : 0.0;
+
   std::cout << std::endl
             << "Time elapsed: " << elapsed_seconds.count() << "s" << std::endl
             << "Injection rate:" << injection_rate_ << " flits/(node*cycle)"
             << "    Injected:" << all_message_num_ << "    Arrived:  " << message_arrived_
             << "    Timeout:  " << message_timeout_ << std::endl
-            << "Average latency: " << ((double)TM->total_cycles_ / TM->message_arrived_)
+            << "Average latency: " << ((double)TM->total_cycles_ / arrived)
             << "  Average receiving rate: " << receiving_rate() << std::endl
             << "Internal Hops: " << average_internal_hops
             << "   Parallel Hops: " << average_parallel_hops
             << "   Serial Hops: " << average_serial_hops << "   Other Hops: " << average_other_hops
-            << std::endl;
+            << std::endl
+            << "Average cycles per hop: " << average_cycles_per_hop << std::endl
+            << "Completion time (cycles): " << last_arrival_cycle_.load() << std::endl;
+
+  {
+    std::vector<uint64_t> lat, hops;
+    {
+      std::lock_guard<std::mutex> lock(stats_mutex_);
+      if (!arrival_latencies_.empty()) {
+        lat = arrival_latencies_;
+        hops = arrival_hops_;
+      }
+    }
+    if (!lat.empty()) {
+      std::sort(lat.begin(), lat.end());
+      std::sort(hops.begin(), hops.end());
+      size_t n = lat.size();
+      uint64_t lat_min = lat.front(), lat_max = lat.back();
+      uint64_t lat_p50 = lat[(size_t)(n * 0.50)];
+      uint64_t lat_p95 = lat[(size_t)(n * 0.95)];
+      uint64_t lat_p99 = n > 1 ? lat[(size_t)(n * 0.99)] : lat_max;
+      uint64_t hop_min = hops.front(), hop_max = hops.back();
+      uint64_t hop_p50 = hops[(size_t)(n * 0.50)];
+      uint64_t hop_p95 = hops[(size_t)(n * 0.95)];
+      uint64_t hop_p99 = n > 1 ? hops[(size_t)(n * 0.99)] : hop_max;
+      std::cout << "Latency (cycles): min " << lat_min << "  max " << lat_max << "  p50 " << lat_p50
+                << "  p95 " << lat_p95 << "  p99 " << lat_p99 << "  (n=" << n << ")" << std::endl;
+      std::cout << "Hops per packet:  min " << hop_min << "  max " << hop_max << "  p50 " << hop_p50
+                << "  p95 " << hop_p95 << "  p99 " << hop_p99 << "  (n=" << n << ")" << std::endl;
+    }
+  }
+
   output_ << injection_rate_ << "," << ((double)total_cycles_ / message_arrived_) << ","
           << receiving_rate() << std::endl;
 #ifdef DEBUG
@@ -347,7 +412,8 @@ void TrafficManager::netrace(std::vector<Packet*>& vecmess, uint64_t cyc) {
   static nt_packet_t* trace_packet = nullptr;
   if (cyc > CTX->input_trheader->num_cycles)
     return;
-  else if ((cyc + 1) % 100000000 == 0) {
+  // else if ((cyc + 1) % 100000000 == 0) {
+  if ((cyc + 1) % 100000000 == 0) {
     print_statistics();
   }
   while ((CTX->latest_active_packet_cycle == cyc)) {

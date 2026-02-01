@@ -117,7 +117,7 @@ void System::switch_allocate(Packet& p) {
   }
 }
 
-void System::update(Packet& p) {
+void System::update(Packet& p, uint64_t cycle) {
   // A packet cannot be sent to itself
   assert(p.link_timer_ > 0 || p.destination_ != p.tail_trace().id);
 
@@ -216,6 +216,10 @@ void System::update(Packet& p) {
     dest_vc.buffer->release_buffer(dest_vc.vcb, p.length_);
     p.finished_ = true;
     TM->message_arrived_++;
+    TM->last_arrival_cycle_.store(cycle);
+    TM->record_arrival(
+        p.trans_timer_,
+        p.internal_hops_ + p.parallel_hops_ + p.serial_hops_ + p.other_hops_);
     TM->total_cycles_ += p.trans_timer_;
     TM->total_parallel_hops_ += p.parallel_hops_;
     TM->total_serial_hops_ += p.serial_hops_;

@@ -10,15 +10,18 @@ class System {
   static System* New(const std::string&);
   virtual ~System() {}
   virtual void reset();
+  void process_pending_credits();
   virtual void read_config() = 0;
   void update(Packet& s);
   void onestage(Packet& s);
   void twostage(Packet& s);
   void Threestage(Packet& s);
+  void Fourstage(Packet& s);
   void routing(Packet& s) const;
   virtual void routing_algorithm(Packet& s) const = 0;
   void vc_allocate(Packet& s) const;
   void switch_allocate(Packet& s);
+  void crossbar_allocate(Packet& p);
   virtual NodeID id2nodeid(int id) const {
     int node_id = id % chips_[0]->number_cores_;
     int chip_id = id / chips_[0]->number_cores_;

@@ -1,31 +1,25 @@
 # Instructions for Simulating Arbitrary Topologies
 Conor Green
 
-Targeting TPU v4/5 topologies
+This branch is for LoN tool
 
 # Build
+
+Requires boost (possibly "module load boost")
 
 ```shell
 # [Debug, Release]
 BUILD_TYPE="Debug"
-
-# required module
-ml boost
 
 cmake --preset $BUILD_TYPE
 cd builds/$BUILD_TYPE
 cmake --build .
 ```
 
-Or use script
-```shell
-./make_negishi.sh
-```
-
 # Run
 
 ```shell
-./builds/Release/ChipletNetworkSim ./input/<config-file>.ini
+./builds/Release/ChipletNetworkSim ./configs/<config-file>.ini
 ```
 
 # Configuration File Format
@@ -190,14 +184,129 @@ For mesh, torus, and dragonfly topologies, refer to the original codebase docume
 
 ```shell
 # Run with dense format (version 1)
-./builds/Release/ChipletNetworkSim ./input/test.ini
+./builds/Release/ChipletNetworkSim ./configs/test.ini
 
 # Run with sparse format (version 2)
-./builds/Release/ChipletNetworkSim ./input/test_sparse.ini
+./builds/Release/ChipletNetworkSim ./configs/test_sparse.ini
 
 # Run mesh topology
-./builds/Release/ChipletNetworkSim ./input/mesh_config.ini
+./builds/Release/ChipletNetworkSim ./configs/mesh_config.ini
 ```
+
+## Trace-Based Simulation (Netrace)
+
+The simulator supports replaying real application network traffic using [Netrace](https://github.com/booksim/netrace) trace files. This is useful for evaluating arbitrary topologies under PARSEC benchmark communication patterns rather than synthetic traffic.
+
+### Obtaining Traces
+
+PARSEC traces for **64 simulated nodes** are distributed with Netrace v1.0 from the University of Texas at Austin:
+
+- Project page: https://www.cs.utexas.edu/~netrace/
+- Download the **Netraces v1.0** trace archive and extract the `.tra.bz2` files.
+
+Place the trace files in `input/parsec_traces/`. Each file should follow the naming convention:
+
+```
+<benchmark>_64c_<size>.tra.bz2
+```
+
+Examples: `blackscholes_64c_simsmall.tra.bz2`, `bodytrack_64c_simlarge.tra.bz2`, `x264_64c_simmedium.tra.bz2`.
+
+Each trace contains **5 regions** of execution (startup, warm-up, PARSEC region-of-interest, teardown, and post-benchmark). Region 2 is typically the parallel ROI.
+
+Netrace support requires **bzip2** at build time (`libbz2-dev` on Ubuntu).
+
+### Applying 64-Node Traces to 20-Node Topologies
+
+The published PARSEC traces were collected on a 64-node CMP, but this simulator is often used with smaller custom topologies (for example, 20-node chiplet networks defined via `BasicArbitrary`). The bridge between trace node count and simulation node count is **`node_id_remap`**.
+
+When `node_id_remap = 1`, each trace packet's source and destination node IDs (0–63) are mapped onto simulation nodes (0–`n_nodes`-1) using a deterministic hash:
+
+```
+sim_node = hash(trace_node_id) % n_nodes
+```
+
+This spreads traffic from all 64 trace nodes across the smaller topology without requiring a one-to-one node correspondence. Packets whose source and destination remap to the **same** simulation node are dropped (they represent on-node traffic that does not traverse the network).
+
+When `node_id_remap = 0`, trace node IDs are used directly and only packets with both `src` and `dst` less than `n_nodes` are injected.
+
+### Example Configuration
+
+`configs/twenty_node_template.ini` is a template for 20-node `BasicArbitrary` topologies with Netrace traffic. Replace the placeholders before running:
+
+| Placeholder   | Meaning                                      | Example                    |
+|---------------|----------------------------------------------|----------------------------|
+| `<topo>`      | Topology basename (`.map`, `.nrl`, `.vcmat`) | `kite_large`               |
+| `<routing>`   | Routing table basename                       | `mclb`                     |
+| `<vc_alloc>`  | VC allocation matrix basename                | `mclb_dfsssp_hops_3vns`    |
+| `<benchmark>` | PARSEC benchmark name                        | `blackscholes`             |
+| `<size>`      | PARSEC input size                            | `simsmall`                 |
+
+Topology routing files (`<topo>.map`, `<topo>_<routing>.nrl`, `<topo>_<routing>_<vc_alloc>.vcmat`) must exist relative to the working directory (typically the repository root).
+
+After substitution, a concrete config looks like:
+
+```ini
+[Network]
+topology = BasicArbitrary
+routing_algorithm = NRL_routing
+n_nodes = 20
+buffer_size = 32
+d2d_IF = on_chip
+router_stages = FourStage
+processing_time = 6
+credit_delay = 1
+max_inflight_per_node = 0
+adjaceny_matrix_filename = ./kite_large.map
+nrl_filename = ./kite_large_mclb.nrl
+vc_filename = ./kite_large_mclb_dfsssp_hops_3vns.vcmat
+vc_type = dateline
+vc_version = 1
+nrl_version = 1
+vc_number = 16
+num_escape_vcs = 3
+
+[Workload]
+traffic = netrace
+node_id_remap = 1
+run_all_regions = 1
+
+[Files]
+netrace_file = ./input/parsec_traces/blackscholes_64c_simsmall.tra.bz2
+
+[Simulation]
+injection_increment = 0.05
+threads = 32
+issue_width = 16
+```
+
+Key Netrace workload options:
+
+- `traffic = netrace` — enable trace replay (requires `[Files] netrace_file`)
+- `node_id_remap = 1` — hash 64 trace nodes onto `n_nodes` simulation nodes
+- `run_all_regions = 1` — simulate all 5 trace regions sequentially; set to `0` and use `region = N` to run a single region (commonly `region = 2` for the ROI)
+- `disable_dependencies = 1` — skip packet dependency tracking (default); set to `0` to enforce Netrace dependencies
+
+### Running
+
+Generate a config from the template (example):
+
+```shell
+sed -e 's/<topo>/kite_large/g' \
+    -e 's/<routing>/mclb/g' \
+    -e 's/<vc_alloc>/mclb_dfsssp_hops_3vns/g' \
+    -e 's/<benchmark>/blackscholes/g' \
+    -e 's/<size>/simsmall/g' \
+    configs/twenty_node_template.ini > configs/kite_large_blackscholes_simsmall.ini
+```
+
+Run from the repository root:
+
+```shell
+./builds/Release/ChipletNetworkSim ./configs/kite_large_blackscholes_simsmall.ini
+```
+
+For batch sweeps over multiple topologies and traces on Slurm, see `run_netrace_slurm_sweep.py`.
 
 
 # BELOW IS THE ORIGINAL README

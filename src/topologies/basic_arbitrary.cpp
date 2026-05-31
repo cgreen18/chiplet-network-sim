@@ -121,8 +121,8 @@ void BasicArbitrary::read_config() {
     std::cerr << "ERROR: Network.vc_number must be > 0 (got " << num_total_vcs_ << ")\n";
     std::exit(1);
   }
-  if (num_escape_vcs_ <= 0) {
-    std::cerr << "ERROR: Network.num_escape_vcs (or escape_vc_number) must be > 0 (got "
+  if (num_escape_vcs_ < 0) {
+    std::cerr << "ERROR: Network.num_escape_vcs (or escape_vc_number) must be >= 0 (got "
               << num_escape_vcs_ << ")\n";
     std::exit(1);
   }
@@ -165,7 +165,9 @@ void BasicArbitrary::read_config() {
   vc_version = param->params_ptree.get<std::string>("Network.vc_version", "1");
   if (vc_version == "2") uses_vcmat2 = true;
 
-  if (!uses_datelines) {
+  if (num_escape_vcs_ == 0) {
+    std::cout << "   Escape VCs disabled; unrestricted VC allocation on each hop" << std::endl;
+  } else if (!uses_datelines) {
     std::cout << "   Using per-flow (2D) deadlock avoidance" << std::endl;
     load_vc_matrix(vc_filename);
   } else if (uses_vcmat2) {
@@ -532,6 +534,8 @@ void BasicArbitrary::connect_chiplets() {
         node->link_buffers_[src_buf_id]->channel_ = off_chip_parallel_channel;
       } else if (d2d_IF_ == "off_chip_serial") {
         node->link_buffers_[src_buf_id]->channel_ = off_chip_serial_channel;
+      } else if (d2d_IF_ == "on_chip") {
+        node->link_buffers_[src_buf_id]->channel_ = on_chip_channel;
       } else {
         // Default to serial channel
         node->link_buffers_[src_buf_id]->channel_ = off_chip_serial_channel;
@@ -592,6 +596,13 @@ void BasicArbitrary::NRL_routing(Packet& s) const {
   auto buf_id_tuple = buf_it->second;
   auto src_buf_id = std::get<0>(buf_id_tuple);
   Buffer* const next_hop_buffer = current_node->link_buffers_[src_buf_id];
+
+  if (num_escape_vcs_ == 0) {
+    for (int vc = 0; vc < num_total_vcs_; ++vc) {
+      s.candidate_channels_.push_back(VCInfo(next_hop_buffer, vc));
+    }
+    return;
+  }
 
   // VC allocation (partitioned, stateful):
   //

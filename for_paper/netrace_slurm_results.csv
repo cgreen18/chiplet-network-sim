@@ -1,0 +1,17 @@
+topo,trace,latency_r0,latency_r1,latency_r2,latency_r3,latency_r4,geomean
+kite_large,blackscholes_simmedium,27.804,21.3267,18.9541,21.0955,26.3581,22.8648
+kite_large,swaptions_simlarge,27.8654,22.4981,19.0952,26.2483,19.8893,22.865
+dbl_bfly_x,blackscholes_simmedium,32.2608,23.2027,19.9516,23.8973,28.7798,25.2537
+kite_large,bodytrack_simlarge,27.9112,21.2339,19.5816,26.3527,26.0568,24.0038
+kite_large,dedup_simmedium,27.6356,19.3552,19.5964,18.9024,21.7343,21.2237
+kite_large,vips_simmedium,28.0986,24.6622,19.8634,23.081,19.1298,22.7377
+dbl_bfly_x,swaptions_simlarge,32.1456,23.069,20.3261,30.6167,20.0741,24.7377
+dbl_bfly_x,bodytrack_simlarge,32.2236,23.1664,20.7773,43.7078,24.158,27.7235
+dbl_bfly_x,dedup_simmedium,33.9717,21.0637,20.5914,20.836,22.4658,23.3203
+kite_large,ferret_simmedium,27.6357,20.1247,19.9068,27.8025,30.1595,24.7481
+kite_large,fluidanimate_simlarge,27.8043,19.7027,25.8727,21.0671,23.3738,23.3756
+dbl_bfly_x,vips_simmedium,33.178,28.1372,21.0804,25.5573,20.0068,25.1501
+dbl_bfly_x,ferret_simmedium,33.949,22.1514,20.8103,43.25,46.3427,31.5715
+dbl_bfly_x,fluidanimate_simlarge,32.2835,21.208,20.9743,21.3965,23.4481,23.5247
+kite_large,canneal_simmedium,27.8052,19.0027,19.4332,18.8374,24.6964,21.6685
+dbl_bfly_x,canneal_simmedium,29.4218,21.0481,20.1824,20.7449,25.7675,23.1722

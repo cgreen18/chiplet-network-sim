@@ -1,9 +1,13 @@
 #pragma once
 #include "buffer.h"
 
+extern "C" {
+typedef struct nt_packet nt_packet_t;
+}
+
 class Packet {
  public:
-  Packet(NodeID src, NodeID dst, int length);
+  Packet(NodeID src, NodeID dst, int length, nt_packet_t* trace_packet = nullptr);
   friend std::ostream& operator<<(std::ostream& s, Packet*& m) {
     s << "Source:" << m->source_ << " Destination:" << m->destination_ << std::endl;
     return s;
@@ -19,6 +23,7 @@ class Packet {
   VCInfo next_vc_;  // vc for the next hop
   int interleaving_tag_;
   bool switch_allocated_;
+  bool crossbar_allocated_;  // switch granted; crossbar traversal (FourStage only)
 
   int length_;
   int process_timer_;  // time to process a message before injecting
@@ -35,4 +40,5 @@ class Packet {
                        // the message occupied should release.
   VCInfo leaving_vc_;  // if the tail of a message shifts , the buffer the
                        // message occupied should release.
+  nt_packet_t* trace_packet_;  // netrace record; cleared on arrival when deps enabled
 };

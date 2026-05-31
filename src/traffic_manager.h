@@ -1,6 +1,7 @@
 #pragma once
 #include <chrono>
 #include <fstream>
+#include <mutex>
 
 #include "system.h"
 extern "C" {
@@ -15,6 +16,8 @@ class TrafficManager {
   TrafficManager();
   ~TrafficManager();
   void reset();
+  bool acquire_inflight(NodeID src);
+  void release_inflight(NodeID src);
   void genMes(std::vector<Packet*>& packets, uint64_t cyc = 0);
   Packet* uniform_mess();
   Packet* intra_group_uniform_mess();
@@ -28,14 +31,19 @@ class TrafficManager {
   void ring_all_reduce_mess(std::vector<Packet*>& packets);
   void ring_all_reduce_bi_mess(std::vector<Packet*>& packets);
   void netrace(std::vector<Packet*>& packets, uint64_t cyc);
+  void netrace_packet_arrived(nt_packet_t* trace_packet);
   inline double receiving_rate() const {
     return injection_rate_ * ((double)TM->message_arrived_ / TM->all_message_num_);
   };
 
   void print_statistics();
+  void begin_netrace_region(int region);
 
   std::fstream trace_;
   nt_context_t* CTX;
+  uint64_t netrace_cycle_start_;  // absolute trace cycle of region start
+  uint64_t netrace_sim_cycles_;
+  uint64_t netrace_sim_packets_;
   std::fstream output_;
   std::fstream log_;
 
@@ -59,4 +67,13 @@ class TrafficManager {
   std::atomic_uint64_t total_parallel_hops_;
   std::atomic_uint64_t total_serial_hops_;
   std::atomic_uint64_t total_other_hops_;
+
+  std::vector<int> inflight_per_node_;
+  std::mutex inflight_mutex_;
+
+ private:
+  void netrace_drain_cleared_packets(std::vector<Packet*>& vecmess);
+  // Returns false if trace_packet is held waiting on dependencies (deps enabled only).
+  bool netrace_try_inject(nt_packet_t* trace_packet, std::vector<Packet*>& vecmess);
+  void netrace_release_trace_packet(nt_packet_t* trace_packet);
 };

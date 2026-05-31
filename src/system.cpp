@@ -47,6 +47,17 @@ void System::reset() {
   }
 }
 
+void System::process_pending_credits() {
+  for (auto chip : chips_) {
+    for (int node_id = 0; node_id < chip->number_nodes_; ++node_id) {
+      Node* node = chip->get_node(node_id);
+      for (auto* buf : node->in_buffers_) {
+        buf->tick_pending_credits();
+      }
+    }
+  }
+}
+
 void System::onestage(Packet& p) {
   if (p.candidate_channels_.empty()) routing(p);
   if (!p.candidate_channels_.empty() && p.next_vc_.buffer == nullptr)  // VC Allocating Stage
@@ -72,6 +83,17 @@ void System::Threestage(Packet& p) {
     switch_allocate(p);
 }
 
+void System::Fourstage(Packet& p) {
+  if (p.candidate_channels_.empty())  // Routing Stage
+    routing(p);
+  else if (!p.candidate_channels_.empty() && p.next_vc_.buffer == nullptr)  // VC Allocating Stage
+    vc_allocate(p);
+  else if (p.next_vc_.buffer != nullptr && !p.crossbar_allocated_ && !p.switch_allocated_)
+    switch_allocate(p);  // Switch Allocating Stage
+  else if (p.crossbar_allocated_ && !p.switch_allocated_)  // Crossbar (st_final) Stage
+    crossbar_allocate(p);
+}
+
 void System::routing(Packet& p) const {
   assert(p.candidate_channels_.empty());
   routing_algorithm(p);
@@ -83,17 +105,7 @@ void System::vc_allocate(Packet& p) const {
   if (current_vc.buffer == nullptr ||
       current_vc.head_packet() == &p) {  // the packet is at the source or at the front of the queue
     for (auto& vc : p.candidate_channels_) {
-      if (vc.buffer->is_empty(vc.vcb))                        // try to allocate a empty vc
-        if (vc.buffer->allocate_buffer(vc.vcb, p.length_)) {  // packet switching
-          // allocating sucessed
-          p.next_vc_ = vc;
-          return;
-        }
-    }
-    // no empty vc, try to allocate a free vc
-    for (auto& vc : p.candidate_channels_) {
-      if (vc.buffer->allocate_buffer(vc.vcb, p.length_)) {  // packet switching
-        // allocating sucessed
+      if (vc.buffer->is_empty(vc.vcb) && vc.buffer->has_buffer(vc.vcb, p.length_)) {
         p.next_vc_ = vc;
         return;
       }
@@ -101,19 +113,53 @@ void System::vc_allocate(Packet& p) const {
   }
 }
 
-void System::switch_allocate(Packet& p) {
+static bool grant_switch_and_link(Packet& p) {
   VCInfo current_vc = p.head_trace();
-  if (current_vc.buffer == nullptr) {              // the packet is at the source
-    if (p.next_vc_.buffer->allocate_in_link(p)) {  // wait for link to the next buffer
-      p.switch_allocated_ = true;
+  if (!p.next_vc_.buffer->allocate_buffer(p.next_vc_.vcb, p.length_)) return false;
+  if (current_vc.buffer == nullptr) {
+    if (!p.next_vc_.buffer->allocate_in_link(p)) {
+      p.next_vc_.buffer->release_buffer(p.next_vc_.vcb, p.length_);
+      return false;
     }
-  } else if (current_vc.head_packet() == &p) {
-    if (current_vc.buffer->allocate_sw_link()) {     // try to allocate the link to the switch
-      if (p.next_vc_.buffer->allocate_in_link(p)) {  // wait for link to the next buffer
-        p.switch_allocated_ = true;
-      } else
-        current_vc.buffer->release_sw_link();
+    return true;
+  }
+  if (current_vc.head_packet() != &p) {
+    p.next_vc_.buffer->release_buffer(p.next_vc_.vcb, p.length_);
+    return false;
+  }
+  if (!current_vc.buffer->allocate_sw_link()) {
+    p.next_vc_.buffer->release_buffer(p.next_vc_.vcb, p.length_);
+    return false;
+  }
+  if (p.next_vc_.buffer->allocate_in_link(p)) return true;
+  current_vc.buffer->release_sw_link();
+  p.next_vc_.buffer->release_buffer(p.next_vc_.vcb, p.length_);
+  return false;
+}
+
+void System::switch_allocate(Packet& p) {
+  bool granted = false;
+  if (router_stages_ == "FourStage") {
+    // Switch-alloc delay only (BookSim sw_alloc cycle). No link/switch locks yet.
+    VCInfo current_vc = p.head_trace();
+    if (current_vc.buffer == nullptr) {
+      granted = true;
+    } else if (current_vc.head_packet() == &p) {
+      granted = true;
     }
+    if (granted) p.crossbar_allocated_ = true;
+    return;
+  }
+  if (grant_switch_and_link(p)) p.switch_allocated_ = true;
+}
+
+void System::crossbar_allocate(Packet& p) {
+  assert(p.crossbar_allocated_);
+  // Crossbar stage (BookSim st_final): take switch + link same as ThreeStage, then depart.
+  if (grant_switch_and_link(p)) {
+    p.switch_allocated_ = true;
+  } else {
+    p.crossbar_allocated_ = false;
   }
 }
 
@@ -141,6 +187,8 @@ void System::update(Packet& p) {
         twostage(p);
       } else if (router_stages_ == "ThreeStage") {
         Threestage(p);
+      } else if (router_stages_ == "FourStage") {
+        Fourstage(p);
       } else {
         std::cerr << "No such a microarchitecture!" << std::endl;
       }
@@ -171,6 +219,7 @@ void System::update(Packet& p) {
     p.candidate_channels_.clear();
     p.next_vc_ = VCInfo();
     p.switch_allocated_ = false;
+    p.crossbar_allocated_ = false;
   } else {
     temp1 = p.head_trace();
     // find the flit that fall behind the head flit
@@ -205,9 +254,6 @@ void System::update(Packet& p) {
     if (temp2.id != p.tail_trace().id) {
       p.releaselink_ = true;
       p.leaving_vc_ = temp2;
-      if (temp2.buffer != nullptr) {
-        temp2.buffer->release_buffer(temp2.vcb, p.length_);
-      }
     }
   }
   // If the last flit reach destination, delete message
@@ -215,6 +261,10 @@ void System::update(Packet& p) {
     VCInfo dest_vc = p.tail_trace();
     dest_vc.buffer->release_buffer(dest_vc.vcb, p.length_);
     p.finished_ = true;
+    if (p.trace_packet_ != nullptr) {
+      TM->netrace_packet_arrived(p.trace_packet_);
+      p.trace_packet_ = nullptr;
+    }
     TM->message_arrived_++;
     TM->total_cycles_ += p.trans_timer_;
     TM->total_parallel_hops_ += p.parallel_hops_;

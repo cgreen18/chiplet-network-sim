@@ -58,6 +58,8 @@ static void worker(std::vector<Packet*>& packets, System* s, int id) {
 // 1. Release the link status and delete arrived packets
 // 2. Update the packets
 static void run_one_cycle(std::vector<Packet*>& vec_pkts, System* system) {
+  system->process_pending_credits();
+
   // single thread, fisrt come first serve
   uint64_t j = 0;
   uint64_t vecsize = vec_pkts.size();
@@ -66,15 +68,18 @@ static void run_one_cycle(std::vector<Packet*>& vec_pkts, System* system) {
     // update link status
     if (pkt->releaselink_ == true) {
       pkt->tail_trace().buffer->release_in_link(*pkt);
-      if (pkt->leaving_vc_.buffer != nullptr) // not leaving the source node
+      if (pkt->leaving_vc_.buffer != nullptr) {
+        // Return upstream buffer credits after link traversal (BookSim credit channel).
+        pkt->leaving_vc_.buffer->release_buffer(pkt->leaving_vc_.vcb, pkt->length_);
         pkt->leaving_vc_.buffer->release_sw_link();
-      else {  // leaving the source node
+      } else {  // leaving the source node
         assert(pkt->leaving_vc_.id == pkt->source_);
       }
       pkt->releaselink_ = false;
     }
     // delete arrived packets
     if (pkt->finished_) {
+      TM->release_inflight(pkt->source_);
       delete pkt;
     } else {
       vec_pkts[j] = pkt;
@@ -134,13 +139,32 @@ int main(int argc, char* argv[]) {
   }
 
   if (param->traffic == "netrace") {  // inject according to the time_stamp
-    TM->injection_rate_ = (double)TM->CTX->input_trheader->num_packets /
-                          TM->CTX->input_trheader->num_cycles / network->num_cores_;
-    for (uint64_t i = 0; i < TM->CTX->input_trheader->num_cycles + 1000; i++) {
-      TM->genMes(all_packets, i);
-      run_one_cycle(all_packets, network);
+    const unsigned int num_regions = param->run_all_regions
+                                         ? TM->CTX->input_trheader->num_regions
+                                         : 1;
+    for (unsigned int region_i = 0; region_i < num_regions; ++region_i) {
+      const int region =
+          param->run_all_regions ? static_cast<int>(region_i) : param->region;
+      if (param->run_all_regions) {
+        TM->begin_netrace_region(region);
+      }
+      TM->injection_rate_ = (double)TM->netrace_sim_packets_ / TM->netrace_sim_cycles_ /
+                            network->num_cores_;
+      for (uint64_t i = 0; i < TM->netrace_sim_cycles_ + 1000; i++) {
+        TM->genMes(all_packets, i);
+        run_one_cycle(all_packets, network);
+      }
+      TM->print_statistics();
+      for (auto pkt : all_packets) {
+        if (pkt->trace_packet_ != nullptr) {
+          TM->netrace_packet_arrived(pkt->trace_packet_);
+          pkt->trace_packet_ = nullptr;
+        }
+        delete pkt;
+      }
+      all_packets.clear();
+      network->reset();
     }
-    TM->print_statistics();
     nt_close_trfile(TM->CTX);
   } else {  // gradually increase the injection rate to find the saturation point
     bool saturated = false;
@@ -179,7 +203,10 @@ int main(int argc, char* argv[]) {
         if (all_packets.size() != 0) std::cerr << "Possible Deadlock!" << std::endl;
 #endif  // DEBUG
       }
-      for (auto pkt : all_packets) delete pkt;
+      for (auto pkt : all_packets) {
+        TM->release_inflight(pkt->source_);
+        delete pkt;
+      }
       all_packets.clear();
       network->reset();
       gen.seed(1);

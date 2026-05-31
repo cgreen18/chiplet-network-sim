@@ -1,9 +1,10 @@
 #include "packet.h"
 
-Packet::Packet(NodeID source, NodeID destination, int length) {
+Packet::Packet(NodeID source, NodeID destination, int length, nt_packet_t* trace_packet) {
     source_ = source;
     destination_ = destination;
     length_ = length;
+    trace_packet_ = trace_packet;
     interleaving_tag_ = 0;
     flit_trace_.reserve(length_);
     for (int i = 0; i < length_; i++) {
@@ -15,6 +16,7 @@ Packet::Packet(NodeID source, NodeID destination, int length) {
     candidate_channels_.clear();
     next_vc_ = VCInfo();
     switch_allocated_ = false;
+    crossbar_allocated_ = false;
     trans_timer_ = 0;
     wait_timer_ = 0;
     internal_hops_ = 0;

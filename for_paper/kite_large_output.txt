@@ -1,0 +1,87 @@
+green456@login02.negishi:[chiplet-network-sim] $ srun --account mithuna --cpus-per-task=128 -p cpu --pty bash -ic "time ./builds/Release/ChipletNetworkSim input/netrace/kite_large_blackscholes_small.ini"
+srun: job 37531072 queued and waiting for resources
+srun: job 37531072 has been allocated resources
+       Config File: 
+          Topology: BasicArbitrary
+  Router Stage Num: FourStage
+       Buffer Size: 32
+         VC number: 16
+   Processing Time: 6
+      Credit Delay: 1
+ Max Inflight/Node: 0
+           Traffic: netrace
+     Packet Length: 5
+     Node ID Remap: 1
+    Netrace Region: 2
+   Simulation Time: 10000
+  Inject Increment: 0.05
+ Timeout Threshold: 500
+Timeout Pkts Limit: 100
+    Threads Number: 128
+       Issue Width: 8
+        Trace File: 
+      Netrace File: ./input/netrace/blackscholes_64c_simsmall.tra.bz2
+       Output File: ../../output/output.csv
+          Log File: ../../output/log.txt
+Basic Arbitrary of 20 nodes
+TOPO filename = ./kite_large.map
+NRL filename = ./kite_large_mclb.nrl
+Using NRL version 1 (dense format)
+reading from file ./kite_large_mclb.nrl
+VC filename = ./kite_large_mclb_dfsssp_hops_3vns.vcmat
+   Using datelining (3D) deadlock avoidance with VC version 1 (dense format)
+reading from file ./kite_large_mclb_dfsssp_hops_3vns.vcmat
+NT_TRACEFILE---------------------
+  Benchmark: parsec-blackscholes
+  Magic Correct? TRUE
+  Tracefile Version: v1.0
+  Number of Program Regions: 5
+  Number of Simulated Nodes: 64
+  Simulated Cycles: 407861642
+  Simulated Packets: 6640073
+  Average injection rate: 0.016280
+  Notes: PARSEC v2.1, blackscholes simsmall, 64 cores, target:1
+    Region 0:
+      Seek Offset: 0
+      Simulated Cycles: 5592485
+      Simulated Packets: 188672
+      Average injection rate: 0.033737
+      Average injection rate per node: 0.000527
+    Region 1:
+      Seek Offset: 4898112
+      Simulated Cycles: 219329694
+      Simulated Packets: 1237088
+      Average injection rate: 0.005640
+      Average injection rate per node: 0.000088
+    Region 2:
+      Seek Offset: 36385432
+      Simulated Cycles: 74692302
+      Simulated Packets: 4889823
+      Average injection rate: 0.065466
+      Average injection rate per node: 0.001023
+    Region 3:
+      Seek Offset: 160214927
+      Simulated Cycles: 102579506
+      Simulated Packets: 195188
+      Average injection rate: 0.001903
+      Average injection rate per node: 0.000030
+    Region 4:
+      Seek Offset: 165251203
+      Simulated Cycles: 5667655
+      Simulated Packets: 129302
+      Average injection rate: 0.022814
+      Average injection rate per node: 0.000356
+  Size of header (B): 247
+NT_TRACEFILE---------------------
+Netrace region 2: cycles=74692302 packets=4889823
+all_message_num_: 0
+  ID:1425760 CYC:224926084 SRC:2 DST:4 ADR:0x00004200 TYP:ReadReq NDEP:1 1425761
+
+Time elapsed: 322.814s
+Injection rate:0.00327331 flits/(node*cycle)    Injected:1    Arrived:  1    Timeout:  0
+Average latency: 16  Average receiving rate: 0.00327331
+Internal Hops: 2   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+real	5m24.134s
+user	5m23.009s
+sys	0m0.116s

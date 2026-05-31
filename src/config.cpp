@@ -10,10 +10,16 @@ Parameters::Parameters(const std::string &config_file) {
   vc_number = params_ptree.get<int>("Network.vc_number", 1);
   router_stages = params_ptree.get<std::string>("Network.router_stages", "ThreeStage");
   processing_time = params_ptree.get<int>("Network.processing_time", 2);
+  credit_delay = params_ptree.get<int>("Network.credit_delay", 1);
+  max_inflight_per_node = params_ptree.get<int>("Network.max_inflight_per_node", 0);
 
   traffic = params_ptree.get<std::string>("Workload.traffic", "uniform");
   traffic_scale = params_ptree.get<int>("Workload.traffic_scale", 0);
   packet_length = params_ptree.get<int>("Workload.packet_length", 5);
+  node_id_remap = params_ptree.get<int>("Workload.node_id_remap", 0);
+  region = params_ptree.get<int>("Workload.region", 0);
+  run_all_regions = params_ptree.get<int>("Workload.run_all_regions", 0);
+  disable_dependencies = params_ptree.get<int>("Workload.disable_dependencies", 1);
 
   injection_increment = params_ptree.get<double>("Simulation.injection_increment", 0.1);
   simulation_time = params_ptree.get<uint64_t>("Simulation.simulation_time", 10000);

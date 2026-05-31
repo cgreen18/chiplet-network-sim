@@ -1,0 +1,101 @@
+       Config File: 
+          Topology: SingleChipMesh
+  Router Stage Num: FourStage
+       Buffer Size: 32
+         VC number: 4
+   Processing Time: 6
+      Credit Delay: 1
+ Max Inflight/Node: 0
+           Traffic: uniform
+     Packet Length: 1
+     Node ID Remap: 0
+    Netrace Region: 0
+   Simulation Time: 10000
+  Inject Increment: 0.05
+ Timeout Threshold: 500
+Timeout Pkts Limit: 100
+    Threads Number: 16
+       Issue Width: 10
+        Trace File: 
+      Netrace File: 
+       Output File: ../../output/output.csv
+          Log File: ../../output/log.txt
+Single Chip 2D-mesh, 4x4
+
+Time elapsed: 0.511387s
+Injection rate:0.05 flits/(node*cycle)    Injected:8000    Arrived:  8001    Timeout:  0
+Average latency: 19.4824  Average receiving rate: 0.0500063
+Internal Hops: 2.66029   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.20925s
+Injection rate:0.1 flits/(node*cycle)    Injected:16000    Arrived:  16009    Timeout:  0
+Average latency: 19.7224  Average receiving rate: 0.100056
+Internal Hops: 2.66263   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.39956s
+Injection rate:0.15 flits/(node*cycle)    Injected:24000    Arrived:  23997    Timeout:  0
+Average latency: 19.9872  Average receiving rate: 0.149981
+Internal Hops: 2.66683   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.21389s
+Injection rate:0.2 flits/(node*cycle)    Injected:32000    Arrived:  32008    Timeout:  0
+Average latency: 20.3048  Average receiving rate: 0.20005
+Internal Hops: 2.66933   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.60763s
+Injection rate:0.25 flits/(node*cycle)    Injected:40000    Arrived:  40004    Timeout:  0
+Average latency: 20.6139  Average receiving rate: 0.250025
+Internal Hops: 2.66461   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.40906s
+Injection rate:0.3 flits/(node*cycle)    Injected:47999    Arrived:  48010    Timeout:  0
+Average latency: 20.9552  Average receiving rate: 0.300069
+Internal Hops: 2.66245   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.59385s
+Injection rate:0.35 flits/(node*cycle)    Injected:55999    Arrived:  56003    Timeout:  0
+Average latency: 21.4189  Average receiving rate: 0.350025
+Internal Hops: 2.66257   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.80515s
+Injection rate:0.4 flits/(node*cycle)    Injected:63999    Arrived:  63992    Timeout:  0
+Average latency: 21.8987  Average receiving rate: 0.399956
+Internal Hops: 2.66422   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.70363s
+Injection rate:0.45 flits/(node*cycle)    Injected:71999    Arrived:  71984    Timeout:  0
+Average latency: 22.5181  Average receiving rate: 0.449906
+Internal Hops: 2.66536   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.39729s
+Injection rate:0.5 flits/(node*cycle)    Injected:79999    Arrived:  80012    Timeout:  0
+Average latency: 23.3424  Average receiving rate: 0.500081
+Internal Hops: 2.66453   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 1.80417s
+Injection rate:0.55 flits/(node*cycle)    Injected:87999    Arrived:  87987    Timeout:  0
+Average latency: 24.6197  Average receiving rate: 0.549925
+Internal Hops: 2.666   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 2.0905s
+Injection rate:0.6 flits/(node*cycle)    Injected:95999    Arrived:  95966    Timeout:  0
+Average latency: 26.4492  Average receiving rate: 0.599794
+Internal Hops: 2.666   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 2.59961s
+Injection rate:0.65 flits/(node*cycle)    Injected:104000    Arrived:  103977    Timeout:  0
+Average latency: 30.4713  Average receiving rate: 0.649856
+Internal Hops: 2.66503   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 4.70991s
+Injection rate:0.7 flits/(node*cycle)    Injected:112000    Arrived:  111996    Timeout:  0
+Average latency: 46.9824  Average receiving rate: 0.699975
+Internal Hops: 2.66564   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Time elapsed: 0.492292s
+Injection rate:0.75 flits/(node*cycle)    Injected:4812    Arrived:  4724    Timeout:  100
+Average latency: 164.013  Average receiving rate: 0.736284
+Internal Hops: 2.62384   Parallel Hops: 0   Serial Hops: 0   Other Hops: 0
+
+Saturation point!
+Maximum average receiving traffic: 0.736284 flits/(node*cycle)

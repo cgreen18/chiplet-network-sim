@@ -1,5 +1,7 @@
 #pragma once
 #include <atomic>
+#include <deque>
+#include <mutex>
 #include <queue>
 
 #include "node.h"
@@ -23,6 +25,7 @@ class Buffer {
   Buffer(Node* node, int vc_num, int buffer_size, Channel channel);
   ~Buffer();
 
+  bool has_buffer(int vcb, int n) const;
   bool allocate_buffer(int vcb, int n);  // Return true if there is enough free buffer.
   void release_buffer(int vcb, int n);
   bool allocate_in_link(Packet&);
@@ -46,6 +49,7 @@ class Buffer {
       vc_head_packet[vcb].store(nullptr);
   }
   void reset();
+  void tick_pending_credits();
 
   // Point to the node where the buffer is located.
   Node* node_;
@@ -56,6 +60,14 @@ class Buffer {
   Channel channel_;
 
  private:
+  struct PendingCredit {
+    int cycles_left;
+    int amount;
+  };
+  void apply_buffer_credit(int vcb, int n);
+  int router_pipeline_latency() const;
+  int credit_return_latency() const;
+
   // single thread: first come first serve
   // multi thread: atomic operation ensures correctness
   // current state of the physical link
@@ -66,4 +78,6 @@ class Buffer {
   // record the packet order for each VC, only the head packet can be sent
   std::queue<Packet*>* vc_queue_;
   std::atomic<Packet*>* vc_head_packet;
+  std::deque<PendingCredit>* pending_credits_;
+  std::mutex credit_mutex_;
 };

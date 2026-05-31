@@ -12,7 +12,8 @@
 #include <utility>
 #include <vector>
 
-const std::vector<std::string> router_stage_nums = {"OneStage", "TwoStage", "ThreeStage"};
+const std::vector<std::string> router_stage_nums = {
+    "OneStage", "TwoStage", "ThreeStage", "FourStage"};
 const std::vector<std::string> topologies = {"SingleChipMesh", "DragonflySW",
                                                   "DragonflyChiplet"};
 const std::vector<std::string> traffic_patterns = {
@@ -47,11 +48,17 @@ struct Parameters {
   int vc_number;
   std::string router_stages;
   int processing_time;     // cycles
+  int credit_delay;        // cycles before freed buffer credit is usable (BookSim credit_delay)
+  int max_inflight_per_node;  // 0 = unlimited; limits source injection (BookSim ejection buffer)
 
   // Workloads
   std::string traffic;
   int traffic_scale;
   int packet_length;  // # of flits
+  int node_id_remap;       // netrace: hash trace node IDs into [0, num_cores_)
+  int region;              // netrace: 0-based trace region index (when run_all_regions=0)
+  int run_all_regions;     // netrace: 1 = simulate every region in the trace file
+  int disable_dependencies;  // netrace: 1 = nt_disable_dependencies (default)
 
   // Simulation Parameters
   uint64_t simulation_time;
@@ -73,8 +80,14 @@ struct Parameters {
     std::cout << std::setw(20) << "Buffer Size: " << buffer_size << std::endl;
     std::cout << std::setw(20) << "VC number: " << vc_number << std::endl;
     std::cout << std::setw(20) << "Processing Time: " << processing_time << std::endl;
+    std::cout << std::setw(20) << "Credit Delay: " << credit_delay << std::endl;
+    std::cout << std::setw(20) << "Max Inflight/Node: " << max_inflight_per_node << std::endl;
     std::cout << std::setw(20) << "Traffic: " << traffic << std::endl;
     std::cout << std::setw(20) << "Packet Length: " << packet_length << std::endl;
+    std::cout << std::setw(20) << "Node ID Remap: " << node_id_remap << std::endl;
+    std::cout << std::setw(20) << "Netrace Region: " << region << std::endl;
+    std::cout << std::setw(20) << "Run All Regions: " << run_all_regions << std::endl;
+    std::cout << std::setw(20) << "Disable Dependencies: " << disable_dependencies << std::endl;
     std::cout << std::setw(20) << "Simulation Time: " << simulation_time << std::endl;
     std::cout << std::setw(20) << "Inject Increment: " << injection_increment << std::endl;
     std::cout << std::setw(20) << "Timeout Threshold: " << timeout_threshold << std::endl;
